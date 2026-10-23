@@ -1,0 +1,55 @@
+digraph Strategy {
+  graph [rankdir=TB, bgcolor="white", fontname="Arial", pad=0.35, nodesep=0.35, ranksep=0.6];
+  node [shape=box, style="rounded,filled", fillcolor="#f1f5f9", color="#64748b", fontname="Arial", fontsize=12];
+  edge [fontname="Arial", fontsize=10, color="#475569"];
+  Main [label="Main\nconsole / wiring", fillcolor="#e0e7ff"];
+  Facade [label="UserFacede\npurchase()", fillcolor="#e0e7ff"];
+  Seating [label="SeatingChart\nreserveSeat()"];
+  Printer [label="TicketPrinter\nprintTicket(..., amount)"];
+  Gate [label="AccessControlGate\nactivateAccess(..., amount)"];
+  Main -> Facade;
+  Main -> PS [label="selects"];
+  Main -> RS [label="supplies"];
+  Facade -> Seating [label="A"];
+  Facade -> Printer [label="B: final price"];
+  Facade -> Gate [label="C: final price"];
+  subgraph cluster_pricing {
+    label="Family 1: PRICING"; color="#93c5fd"; fontname="Arial"; fontsize=16;
+    PS [label="PricingSelector\nselectByName()\nselectAutomatically()", fillcolor="#dbeafe"];
+    PC [label="PricingContext\n- strategy: PricingStrategy\n+ constructor(strategy)\n+ setStrategy(strategy)\n+ calculatePrice(base, reserved, total)", fillcolor="#dbeafe"];
+    PI [label="<<interface>>\nPricingStrategy\n+ calculatePrice(base, reserved, total): int", fillcolor="#eff6ff"];
+    P1 [label="StandardPricing\nbase price"];
+    P2 [label="DemandPricing\noccupancy-dependent markup"];
+    P3 [label="BookingFeePricing\nfixed fee"];
+    PS -> PI [style=dashed, label="creates"];
+    PC -> PI [dir=both, arrowtail=odiamond, arrowhead=none, label="strategy"];
+    P1 -> PI [style=dashed, arrowhead=empty];
+    P2 -> PI [style=dashed, arrowhead=empty];
+    P3 -> PI [style=dashed, arrowhead=empty];
+  }
+  Seating -> PC [label="delegates price"];
+  subgraph cluster_risk {
+    label="Family 2: RISK"; color="#86efac"; fontname="Arial"; fontsize=16;
+    RS [label="RiskCheckSelector\nselectByName()\nselectAutomatically()", fillcolor="#dcfce7"];
+    RC [label="PurchaseRiskChecker\n- strategy: RiskCheckStrategy\n+ constructor(strategy)\n+ setStrategy(strategy)\n+ check(customerId, amount)", fillcolor="#dcfce7"];
+    RI [label="<<interface>>\nRiskCheckStrategy\n+ check(customerId, amount): void", fillcolor="#f0fdf4"];
+    R1 [label="StandardRiskCheck\nblocklist"];
+    R2 [label="LargePurchaseRiskCheck\nblocklist + amount limit"];
+    R3 [label="FrequentPurchaseRiskCheck\nblocklist + recent history"];
+    Fraud [label="FraudChecker\nmandatory blocklist"];
+    Source [label="<<interface>>\nPurchaseHistorySource\n+ countRecentPurchases(customerId): int", fillcolor="#fef3c7"];
+    Sim [label="SimulatedPurchaseHistorySource\nfixed external snapshot", fillcolor="#fef3c7"];
+    Fake [label="FixedPurchaseHistory\nfixed values in tests", fillcolor="#fef3c7"];
+    RS -> RI [style=dashed, label="creates"];
+    RC -> RI [dir=both, arrowtail=odiamond, arrowhead=none, label="strategy"];
+    R1 -> RI [style=dashed, arrowhead=empty];
+    R2 -> RI [style=dashed, arrowhead=empty];
+    R3 -> RI [style=dashed, arrowhead=empty];
+    R1 -> Fraud; R2 -> Fraud; R3 -> Fraud;
+    R3 -> Source [label="depends on"];
+    Sim -> Source [style=dashed, arrowhead=empty];
+    Fake -> Source [style=dashed, arrowhead=empty];
+  }
+  Printer -> RS [label="selects using final price"];
+  Printer -> RC [label="checks"];
+}

@@ -40,7 +40,7 @@ public class UserFacede {
             purchase.markACompleted();
             workflowRepository.save(purchase);
 
-            ticketPrinter.printTicket(purchaseId, purchaseId, customerId);
+            ticketPrinter.printTicket(purchaseId, purchaseId, customerId, reservation.getPrice());
             purchase.markBCompleted();
             workflowRepository.save(purchase);
 

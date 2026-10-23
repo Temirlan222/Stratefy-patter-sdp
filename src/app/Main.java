@@ -10,6 +10,11 @@ import processing.TicketPrinter;
 import processing.TicketProcessingRepository;
 import reservation.ReservationRepository;
 import reservation.SeatingChart;
+import strategy.pricing.PricingContext;
+import strategy.pricing.PricingSelector;
+import strategy.pricing.StandardPricing;
+import strategy.risk.RiskCheckSelector;
+import strategy.risk.SimulatedPurchaseHistorySource;
 
 import java.io.IOException;
 import java.io.PrintStream;
@@ -20,6 +25,7 @@ import java.sql.SQLException;
 import java.util.NoSuchElementException;
 import java.util.Scanner;
 import java.util.Set;
+import java.util.Map;
 
 public class Main {
     public static void main(String[] args) {
@@ -42,9 +48,14 @@ public class Main {
         TicketAccessRepository access = new TicketAccessRepository(databaseUrl);
         PurchaseWorkflowRepository workflows = new PurchaseWorkflowRepository(databaseUrl);
         AdminFacade admin = new AdminFacade(workflows, reservations, tickets, access);
-        SeatingChart seatingChart = new SeatingChart(100, reservations);
-        TicketPrinter printer = new TicketPrinter(new FraudChecker(Set.of(7)), tickets);
-
+        PricingSelector selector = new PricingSelector();
+        PricingContext pricingContext = new PricingContext(new StandardPricing());
+        SeatingChart seatingChart = new SeatingChart(100, reservations, pricingContext);
+        RiskCheckSelector riskSelector = new RiskCheckSelector(new FraudChecker(Set.of(7)),
+                new SimulatedPurchaseHistorySource(Map.of(30, 3)));
+        String riskMode = "auto";
+        String pricingMode = "auto";
+        boolean partnerBooking = false;
         while (true) {
             output.println("""
 
@@ -54,6 +65,10 @@ public class Main {
                     3. Компенсировать незавершённую покупку
                     4. Покупка с отказом B: покупатель 7 заблокирован
                     5. Покупка с отказом C: система прохода недоступна
+                    6. Настроить цену: auto / standard / demand / booking_fee
+                    7. Настроить риск: auto / standard / large_purchase / frequent_purchase
+                    8. Демо всех стратегий цены: один контекст
+                    10. Демо всех стратегий риска: один контекст
                     0. Выход
                     """);
             if (!input.hasNextLine()) return;
@@ -68,6 +83,11 @@ public class Main {
                         int customerId = choice == 4 ? 7
                                 : readPositiveInt(input, output, "ID покупателя (7 заблокирован): ");
                         int basePrice = readPositiveInt(input, output, "Исходная цена: ");
+                        int reservedSeats = reservations.countReservedSeats(eventId);
+                        pricingContext.setStrategy(selector.select(
+                                pricingMode, partnerBooking, reservedSeats, 100));
+                        boolean highDemand = reservedSeats * 2 >= 100;
+                        TicketPrinter printer = new TicketPrinter(riskSelector, riskMode, highDemand, tickets);
                         UserFacede user = new UserFacede(seatingChart, printer,
                                 new AccessControlGate(access, choice != 5), workflows, admin);
                         try {
@@ -87,6 +107,29 @@ public class Main {
                         admin.compensate(purchaseId);
                         output.println(admin.inspectPurchase(purchaseId));
                     }
+                    case 6 -> {
+                        output.print("Режим цены (auto, standard, demand, booking_fee): ");
+                        String nextMode = input.nextLine().trim();
+                        // Validate the name before replacing the current settings.
+                        selector.select(nextMode, false, 0, 100);
+                        int partner = readInt(input, output, "Партнёрская покупка? 1 — да, 0 — нет: ");
+                        if (partner != 0 && partner != 1) {
+                            throw new IllegalArgumentException("Введите 0 или 1.");
+                        }
+                        pricingMode = nextMode;
+                        partnerBooking = partner == 1;
+                        output.println("Настройки цены сохранены: " + pricingMode
+                                + ", партнёрская покупка: " + partnerBooking);
+                    }
+                    case 7 -> {
+                        output.print("Режим риска (auto, standard, large_purchase, frequent_purchase): ");
+                        String nextMode = input.nextLine().trim();
+                        riskSelector.select(nextMode, false, 0);
+                        riskMode = nextMode;
+                        output.println("Режим риска сохранён: " + riskMode);
+                    }
+                    case 8 -> StrategyDemo.pricing(output);
+                    case 10 -> StrategyDemo.risk(output);
                     default -> output.println("Нет такого пункта меню.");
                 }
             } catch (NumberFormatException failure) {

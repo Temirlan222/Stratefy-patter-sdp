@@ -1,217 +1,211 @@
-# TicketConcert — Assignment 4: Facade
+# TicketConcert — Assignment 5: Strategy
 
-Вариант 10, Concert Ticketing. Java 17+, Maven, SQLite/JDBC, JUnit 5, JaCoCo.
+Concert Ticketing на базе Assignment 4 (Facade). Java 17+, Maven, SQLite/JDBC, JUnit 5.
+Новый код Assignment 5 находится в `src/strategy`, демонстрация — в `src/app/StrategyDemo.java`.
 
 ## Запуск
 
-Открой проект в IntelliJ как Maven-проект. Можно запустить `app.Main` кнопкой Run.
-Рабочая папка конфигурации Run — корень TicketConcert.
+1. Открой `pom.xml` в IntelliJ как Maven-проект, загрузи Maven dependencies.
+2. Выбери JDK 17+ и запусти `app.Main`. Рабочая папка — корень TicketConcert.
+3. Для тестов и сборки: `mvn clean verify`.
 
-Или из PowerShell в корне проекта выполни одну команду:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\run.ps1
-```
-
-Нужны JDK 17+ (`JAVA_HOME`) и Maven (`mvn`) в PATH. Скрипт собирает JAR и открывает меню.
-База по умолчанию — `data/concert.db`. Она создаётся автоматически, сохраняется между запусками
-и не удаляется командами Maven `clean` или `test`.
-
-С другим файлом базы:
+После сборки:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\run.ps1 -DatabasePath data/demo.db
+java -jar target/ticket-concert.jar
 ```
 
-Сборка и прямой запуск уже собранного приложения:
+На JDK 24+ для SQLite можно добавить `--enable-native-access=ALL-UNNAMED` перед `-jar`.
+Для PowerShell доступен `powershell -NoProfile -ExecutionPolicy Bypass -File .\run.ps1`;
+этому скрипту нужны Maven в PATH и JDK через JAVA_HOME.
+База создаётся в `data/concert.db`, сохраняется между запусками и не удаляется Maven clean.
+Другой файл базы: `java -jar target/ticket-concert.jar data/demo.db`.
 
-```powershell
-mvn clean verify
-java --enable-native-access=ALL-UNNAMED -jar target/ticket-concert.jar
-```
+## Меню
 
-## Меню и демонстрация
-
-| Пункт | Действие |
+| Пункт | Назначение |
 |---|---|
-| 1 | Купить билет: A → B → C |
-| 2 | Прочитать сохранённые статусы покупки и всех трёх подсистем |
-| 3 | Компенсировать незавершённую покупку, включая после перезапуска |
-| 4 | Покупка с реальным отказом FraudChecker для заблокированного покупателя 7 |
-| 5 | Покупка с отказом недоступной системы прохода C |
+| 1 | Покупка A → B → C с текущими режимами цены и риска |
+| 2 | Чтение сохранённых статусов покупки |
+| 3 | Компенсация незавершённой покупки, в том числе после перезапуска |
+| 4 | Отказ B: покупатель 7 заблокирован |
+| 5 | Отказ C: проход недоступен |
+| 6 | Цена: auto / standard / demand / booking_fee; партнёрский признак 0/1 |
+| 7 | Риск: auto / standard / large_purchase / frequent_purchase |
+| 8 | Демо всех стратегий цены, ручного/автоматического выбора, runtime switching |
+| 10 | Демо всех стратегий риска, ручного/автоматического выбора, runtime switching |
 | 0 | Выход |
 
-В зале 100 мест, от 1 до 100 включительно. Для каждого нового запроса используй новый ID покупки.
-ID покупки используется как ID брони, билета и доступа в их отдельных таблицах.
-Номер покупателя 7 заблокирован; для успешного примера используй 20.
-Если занято минимум 50% мест, цена увеличивается на 20%. В C передаётся рассчитанная цена.
+Режимы по умолчанию — `auto`; настройки действуют в текущем запуске.
+Зал содержит 100 мест. Для новой покупки используй новый ID; покупатель 7 заблокирован.
+Демо создаёт свои локальные контексты, не делает покупок и не меняет выбранные режимы реального меню.
 
-### Короткий сценарий защиты на чистой базе
+## Семья 1: расчёт цены
 
-1. Пункт **1**: покупка **1**, концерт **10**, место **1**, покупатель **20**, цена **5000**.
-   Ожидаются `COMPLETED / RESERVED / PRINTED / ACTIVE`.
-2. Пункт **4**: покупка **2**, концерт **10**, место **2**, цена **5000**.
-   Покупатель 7 выбирается этим сценарием автоматически. После отказа B:
-   `COMPENSATED / RELEASED / NONE / NONE`.
-3. Пункт **5**: покупка **3**, концерт **10**, место **3**, покупатель **20**, цена **5000**.
-   После отказа C: `COMPENSATED / RELEASED / CANCELLED / NONE`.
-4. Выйди через **0**, запусти приложение снова, пунктом **2** посмотри покупку **1**.
-   Данные должны сохраниться.
-5. Для дополнительной ошибки попробуй обычную покупку занятого места **1** на концерте **10**
-   или несуществующего места **101**. Используй новый ID покупки.
+Контракт: `PricingStrategy.calculatePrice(basePrice, reservedSeats, totalSeats)`.
 
-Порядок статусов выше: **workflow / A / B / C**. `NONE` означает, что записи нет.
-Ошибочный пункт меню или нечисловой ввод показывают сообщение и возвращают в меню.
-Положительные ID и цена проверяются в CLI; существование и занятость места — в A.
+| Стратегия | Логика |
+|---|---|
+| StandardPricing | Возвращает базовую цену |
+| DemandPricing | При занятости от 50% добавляет 20%, иначе возвращает базовую цену |
+| BookingFeePricing | Добавляет фиксированную комиссию 500 |
 
-### Сброс данных
+`PricingContext` получает стратегию в конструкторе, меняет её через setStrategy и делегирует расчёт.
+`PricingSelector` поддерживает ручной выбор по имени. Автоматические правила по приоритету:
+партнёрская покупка → BookingFeePricing; иначе занятость от 50% → DemandPricing; иначе StandardPricing.
+Занятость берётся для выбранного концерта перед резервированием нового места.
 
-Сначала закрой приложение. Затем удали только файл выбранной базы, например:
+## Семья 2: проверка риска
 
-```powershell
-Remove-Item -LiteralPath .\data\concert.db
-```
+Контракт: `RiskCheckStrategy.check(customerId, amount)`; отказ обозначается IllegalArgumentException.
 
-При следующем запуске пустая база создастся заново. Для демонстрации без удаления старых данных
-можно передать новый путь базы через `-DatabasePath`.
+| Стратегия | Логика |
+|---|---|
+| StandardRiskCheck | Проверяет блоклист |
+| LargePurchaseRiskCheck | Проверяет блоклист, затем запрещает итоговую сумму больше 50000 |
+| FrequentPurchaseRiskCheck | Проверяет блоклист, затем запрещает покупку при 3 и более предыдущих покупках за час |
 
-## Архитектура
+`PurchaseRiskChecker` — контекст с constructor/setStrategy/делегированием, без выбора типа стратегии.
+`RiskCheckSelector` поддерживает ручные имена. Автоматические правила по приоритету:
+высокий спрос (занято от 50%) → FrequentPurchaseRiskCheck; иначе сумма от 50000 → LargePurchaseRiskCheck; иначе StandardRiskCheck.
+При высоком спросе частотная проверка имеет приоритет перед проверкой суммы.
+Это альтернативные алгоритмы: выполняется выбранный, а блоклист проверяется в каждом.
+Ровно 50000 выбирает проверку суммы, но не нарушает её лимит.
+
+## Внешние данные за интерфейсом
+
+FrequentPurchaseRiskCheck зависит от собственного `PurchaseHistorySource`.
+Его метод countRecentPurchases(customerId) предоставляет число покупок за последний час.
+`SimulatedPurchaseHistorySource` имитирует ответ внешнего сервиса фиксированным снимком Map:
+в меню у покупателя 30 заданы 3 покупки, у отсутствующего клиента — 0.
+Новые записи локальной SQLite этот снимок не меняют; реального API здесь нет, что разрешено заданием.
+В `RiskStrategiesTest` отдельный fake `FixedPurchaseHistory` возвращает фиксированное число.
+Замена источника требует новой реализации интерфейса и её передачи в точке сборки объектов.
+
+## Демо на защите
+
+Пункт **8** использует один вход: base=5000, reserved=70, total=100.
 
 ```text
-src/
-  app/             Main — клиент и консольное меню
-  reservation/     A: SeatReservation, SeatingChart, DynamicPricingEngine, ReservationRepository
-  processing/      B: TicketProcessing, FraudChecker, TicketPrinter, TicketProcessingRepository
-  finalization/    C: TicketAccess, AccessControlGate, RefundService, TicketAccessRepository
-  Facedes/         UserFacede, AdminFacade, PurchaseWorkflow, PurchaseWorkflowRepository
-test/              тесты в соответствующих пакетах
-docs/              UML: uml.svg, uml.png, исходник uml.dot
+standard = 5000
+demand = 6000
+booking_fee = 5500
+Manual: booking_fee = 5500
+Auto: DemandPricing = 6000
 ```
 
-Названия `Facedes` и `UserFacede` сохранены из исходного учебного проекта.
-Подсистемы не импортируют и не вызывают друг друга. Каждая имеет свою сущность, отдельную
-бизнес-логику и собственный JDBC-репозиторий. В CLI их таблицы расположены в одном SQLite-файле;
-репозитории можно использовать и с отдельными файлами. Межподсистемных внешних ключей нет.
+Пункт **10** использует один вход: customer=30, amount=60000, previous purchases=3.
 
-Чистая бизнес-логика: `DynamicPricingEngine` в A, `FraudChecker` в B, `RefundService` в C.
-`RefundService.calculateRefund()` разрешает полный возврат только для ACTIVE и не обращается к базе.
-Печать — сохранённый выпуск билета PRINTED; возврат — учёт REFUNDED и суммы.
-Физический принтер и банковские переводы не подключаются.
+```text
+standard = ACCEPTED
+large_purchase = REJECTED
+frequent_purchase = REJECTED
+Manual: standard = ACCEPTED
+Auto: FrequentPurchaseRiskCheck = REJECTED
+```
 
-| Сущность | Разрешённые переходы |
+Каждый метод создаёт ровно один контекст перед циклом, затем вызывает setStrategy на нём.
+Входные данные не меняются. Риск-демо перехватывает ожидаемый отказ, печатает результат и продолжает цикл.
+Это позволяет сравнить все алгоритмы даже после отказа одного из них.
+
+## Подключение к Facade
+
+Main выбирает стратегию цены через Selector и устанавливает её в общий PricingContext.
+SeatingChart рассчитывает цену через этот контекст и сохраняет бронь (A).
+UserFacede передаёт итоговую reservation.price в TicketPrinter (B).
+Конструктор принтера для меню получает режим, селектор риска и признак спроса.
+Непосредственно перед проверкой он выбирает стратегию с учётом уже рассчитанной суммы.
+Успешная проверка позволяет создать билет; C сохраняет доступ с той же итоговой суммой.
+При отказе B/C существующий AdminFacade компенсирует выполненные шаги в обратном порядке.
+Статусы и SQLite-схема Assignment 4 сохранены. Старые конструкторы остаются совместимыми со старыми вызовами.
+DynamicPricingEngine оставлен как часть Assignment 4; текущий путь покупки использует PricingContext.
+
+## Классы и ответственность
+
+Таблица охватывает все 33 production класса/интерфейса. Каждая ответственность — одно предложение до 25 слов без if/and/or/but.
+
+| Класс / интерфейс | Responsibility |
 |---|---|
-| SeatReservation | NEW → RESERVED → RELEASED |
-| TicketProcessing | NEW → PRINTED → CANCELLED |
-| TicketAccess | NEW → ACTIVE → REFUNDED |
-| PurchaseWorkflow | PENDING_A → PENDING_B → PENDING_C → COMPLETED |
-| Незавершённый PurchaseWorkflow | PENDING_A/B/C → COMPENSATING → COMPENSATED |
+| `strategy.pricing.PricingStrategy` | Defines the ticket price calculation contract. |
+| `strategy.pricing.StandardPricing` | Returns the base ticket price. |
+| `strategy.pricing.DemandPricing` | Applies a twenty percent markup when at least half the seats are reserved. |
+| `strategy.pricing.BookingFeePricing` | Adds a fixed booking fee to the ticket price. |
+| `strategy.pricing.PricingContext` | Delegates price calculation to its replaceable strategy. |
+| `strategy.pricing.PricingSelector` | Chooses a pricing algorithm from the current booking situation. |
+| `strategy.pricing.PricingService` | Preserves the original price calculation API after refactoring. |
+| `strategy.risk.RiskCheckStrategy` | Defines the purchase risk checking contract. |
+| `strategy.risk.StandardRiskCheck` | Checks the customer blocklist. |
+| `strategy.risk.LargePurchaseRiskCheck` | Rejects blocked customers before enforcing the purchase amount limit. |
+| `strategy.risk.FrequentPurchaseRiskCheck` | Rejects blocked customers before checking recent purchase frequency. |
+| `strategy.risk.PurchaseRiskChecker` | Delegates purchase checks to its replaceable strategy. |
+| `strategy.risk.RiskCheckSelector` | Chooses a risk checking algorithm using purchase conditions. |
+| `strategy.risk.PurchaseHistorySource` | Defines access to recent customer purchase counts. |
+| `strategy.risk.SimulatedPurchaseHistorySource` | Supplies a fixed snapshot of recent purchase counts. |
+| `app.Main` | Handles console commands for ticket purchases. |
+| `app.StrategyDemo` | Demonstrates replaceable algorithms on identical inputs. |
+| `reservation.SeatReservation` | Maintains the lifecycle of a seat reservation. |
+| `reservation.ReservationRepository` | Persists seat reservations in SQLite. |
+| `reservation.SeatingChart` | Creates reservations priced through the selected strategy. |
+| `reservation.DynamicPricingEngine` | Retains the original Assignment 4 demand price calculation. |
+| `processing.FraudChecker` | Rejects customers present in the configured blocklist. |
+| `processing.TicketProcessing` | Maintains the lifecycle of a printed ticket. |
+| `processing.TicketProcessingRepository` | Persists ticket processing records in SQLite. |
+| `processing.TicketPrinter` | Issues tickets after selected risk checks succeed. |
+| `finalization.TicketAccess` | Maintains the lifecycle of concert access. |
+| `finalization.TicketAccessRepository` | Persists concert access records in SQLite. |
+| `finalization.RefundService` | Calculates the refundable amount for active access. |
+| `finalization.AccessControlGate` | Manages ticket access activation. |
+| `Facedes.PurchaseWorkflow` | Maintains the lifecycle of a purchase workflow. |
+| `Facedes.PurchaseWorkflowRepository` | Persists purchase workflows in SQLite. |
+| `Facedes.UserFacede` | Coordinates the complete ticket purchase workflow. |
+| `Facedes.AdminFacade` | Coordinates recovery of incomplete purchase workflows. |
 
-## Сохранение, компенсации и восстановление
+Диаграммы:
 
-`UserFacede.purchase()` сначала сохраняет workflow, затем вызывает A, B, C и сохраняет
-прогресс после каждого шага. При отказе вызывает `AdminFacade.compensate()`, после чего
-снова выбрасывает исходное исключение: компенсированная покупка не считается успешной.
+* Strategy и точки подключения: [SVG](docs/strategy-uml.svg), [PNG](docs/strategy-uml.png), [DOT](docs/strategy-uml.dot).
+* Весь проект Facade + Strategy: [SVG](docs/uml.svg), [PNG](docs/uml.png), [DOT](docs/uml.dot).
+* Исходные материалы Assignment 4 сохранены в `docs/assignment-4/` как историческая версия.
 
-- Отказ B после сохранения A: бронь становится RELEASED; B и C отсутствуют.
-- Отказ C после сохранения A/B: сначала сохраняется CANCELLED для B, затем RELEASED для A.
-- Если остановка произошла после сохранения ACTIVE, но до COMPLETED, ручная компенсация
-  незавершённой покупки сначала оформляет REFUNDED для C, затем отменяет B и A.
-- Перед отменой сохраняется COMPENSATING; COMPENSATED сохраняется только после всех действий.
-- Компенсация читает реальные записи подсистем. Она работает даже если workflow отстал
-  от уже сохранённого шага.
-- После повторного открытия базы пункт **3** завершает отмену оставшихся шагов.
-  CANCELLED/RELEASED/REFUNDED повторно не меняются; повторная компенсация COMPENSATED безопасна.
-- COMPLETED защищён от ручной компенсации этого сценария. Это восстановление незавершённой
-  цепочки, а не отмена любой завершённой продажи.
-- Ошибка компенсации прикрепляется к исходной через `addSuppressed()`; сохраняется возможность
-  повторить отмену после устранения причины. При недоступной базе гарантировать немедленную
-  компенсацию нельзя.
+## Почему Strategy, а не State или Template Method
 
-Стратегия восстановления — **отмена незавершённой цепочки по запросу администратора**.
-Автоматического продолжения покупки вперёд и фоновых задач нет. Это одно консольное приложение,
-без параллельной обработки покупок.
+В проекте взаимозаменяемые алгоритмы выполняют одну операцию: расчёт цены либо проверку риска.
+Контекст хранит объект интерфейса и делегирует ему вызов. Клиент может заменить этот объект через setStrategy во время работы.
+Автоматическое решение принимает отдельный Selector, а не контекст. Новую стратегию можно передать в существующий контекст без его изменения;
+для выбора новой стратегии по имени потребуется добавить имя в Selector.
+State связывает поведение с текущим состоянием объекта и переходами между состояниями.
+Наши стратегии не переводят контекст из состояния в состояние: они являются выбранными способами расчёта или проверки.
+Статусы покупки из Assignment 4 существуют отдельно от этой системы алгоритмов.
+Template Method задавал бы каркас операции в базовом классе с переопределением шагов через наследование.
+У нас алгоритм заменяется через композицию: контекст содержит объект стратегии.
+Поэтому основой решения является Strategy. Условия внутри алгоритмов, например порог суммы, относятся к самой проверке;
+ветвление по выбору алгоритма вынесено в Selector.
 
-## Principle of Least Knowledge: до и после
+## История рефакторинга
 
-Без фасада клиенту пришлось бы знать порядок и API всех подсистем:
+* [До: c076dd1 — PricingService со switch](https://github.com/Temirlan222/Stratefy-patter-sdp/commit/c076dd17328fa2ef813b8de37bb82eda76807a28).
+* [После: 35e5d90 — выделены стратегии цены](https://github.com/Temirlan222/Stratefy-patter-sdp/commit/35e5d90e7bec0dd8925172913bf549040afdca0b).
 
-```java
-SeatReservation reservation = seatingChart.reserveSeat(1, 10, 5, 5000);
-ticketPrinter.printTicket(1, 1, 20);
-accessControlGate.activateAccess(1, 1, reservation.getPrice());
-// Клиенту также пришлось бы сохранять workflow и организовывать компенсации.
-```
+`test/strategy/pricing/PricingServiceTest.java` содержит те же пять тестов на обоих коммитах.
+Они проверяют сохранение публичного контракта при рефакторинге.
+Коммиты существуют в истории проекта; ссылки открываются после публикации соответствующих коммитов в GitHub.
+Веб-загрузка одних файлов не переносит Git history; для сдачи нужно загрузить коммиты обычным Git push с авторизацией.
+Для переноса проекта сохраняй полную историю, включая оба коммита рефакторинга.
 
-С фасадом клиент знает одну операцию:
+## Тесты
 
-```java
-userFacede.purchase(1, 10, 5, 20, 5000);
-```
+`mvn clean verify` запускает JUnit 5, создаёт JAR и проверяет унаследованный порог JaCoCo 80% строк каждого бизнес-пакета.
+`app` исключён из порога, но меню покрыто интеграционными тестами.
 
-Для административного сценария клиент использует второй фасад:
+* PricingServiceTest: неизменный контракт до/после.
+* PricingStrategiesTest / RiskStrategiesTest: каждый алгоритм, границы условий, параметризованные проверки обеих семей.
+* PricingSelectorTest / RiskCheckSelectorTest: имена, неизвестное имя, все автоматические правила, приоритеты.
+* PricingContextTest / PurchaseRiskCheckerTest: делегирование аргументов и смена стратегии того же контекста.
+* SimulatedPurchaseHistorySourceTest: заданные значения истории и отсутствующий клиент.
+* PurchaseRiskIntegrationTest: итоговая цена передаётся в проверку риска; отказ освобождает бронь.
+* PricingMenuTest / RiskMenuTest: ручной/автоматический режим, SQLite-результаты, блоклист и компенсация.
+* StrategyDemoTest: оба демо, продолжение после отказа, сохранность настроек реальной покупки.
+* Старые тесты Assignment 4: состояния, репозитории, Facade, восстановление и компенсации.
 
-```java
-adminFacade.inspectPurchase(1);
-adminFacade.compensate(2);
-```
-
-Сборка зависимостей в Main — настройка приложения при запуске. Во время покупки клиент
-не извлекает внутренние репозитории из фасада и не управляет шагами подсистем.
-
-## Почему Facade, а не Adapter
-
-Здесь подсистемы уже имеют подходящие API. Нам нужно дать клиенту простую операцию покупки,
-которая координирует бронирование, выпуск билета, активацию доступа, сохранение прогресса
-и компенсацию. Это назначение Facade: единая точка входа для сложного набора подсистем.
-Adapter решал бы другую задачу — преобразование несовместимого интерфейса в ожидаемый клиентом.
-У нас нет такого преобразования: фасад вызывает существующие методы в нужном порядке и
-решает, какие сохранённые действия отменять при отказе. Подсистемы сохраняют самостоятельность
-и отдельно используются в тестах.
-
-## Тесты и покрытие
-
-```powershell
-mvn test
-mvn clean verify
-```
-
-`test` запускает JUnit и формирует HTML-отчёт: `target/site/jacoco/index.html`.
-`verify` дополнительно собирает JAR и проверяет минимум **80% покрытия строк каждого пакета**
-A, B, C и Facedes. Пакет app — CLI, не включён в этот показатель; меню проверяется отдельными тестами.
-Ни одна строка подсистем или фасадов из измерения не исключается.
-
-Проверено 22.10.2026: **52 теста**, 0 failures/errors. Покрытие — **388/392 = 98,98%**.
-
-| Пакет | Покрытие строк |
-|---|---:|
-| reservation | 99/101 = 98,02% |
-| processing | 69/71 = 97,18% |
-| finalization | 76/76 = 100% |
-| Facedes | 144/144 = 100% |
-
-Тесты обоих уровней компенсации проверяют фактически сохранённый результат; тест отказа C
-проверяет порядок B → A. Есть восстановление после повторного открытия базы посередине цепочки
-и после ошибки посередине компенсации. Тесты меню проверяют покупку, оба отказа, повторный запуск
-и некорректный ввод. Помощник `createTicketOffice()` задаёт предметный язык подготовки сценариев.
-
-F.I.R.S.T.: маленькие локальные сценарии, независимые временные базы `@TempDir`, повторяемые
-входные данные и программные assert-проверки. Тесты и реализацию следует хранить вместе в Git;
-отсутствующую историю разработки нельзя заменить выдуманными коммитами задним числом.
-
-## UML
-
-![UML class diagram](docs/uml.png)
-
-Векторная версия для увеличения: [uml.svg](docs/uml.svg). Исходник: [uml.dot](docs/uml.dot).
-Показаны Client, оба фасада, workflow и все 12 классов подсистем.
-
-## Перед сдачей
-
-- Проверить `mvn clean verify` и запустить меню.
-- Добавить исходники, тесты, pom.xml, run.ps1, README и docs в свой Git-репозиторий.
-- Не добавлять target, локальную базу и настройки IDE; они исключены в .gitignore.
-- Удалить временный учебный AGENTS.md после завершения работы с наставником.
-- Сдать реальную ссылку Git-репозитория в Moodle в срок преподавателя.
-
-Репозиторий: https://github.com/Temirlan222/Facede-software-design-pattern . Ссылку в Moodle отправляет автор проекта.
-Подробная сверка с Assignment_4_Facade patterm(2).docx: [docs/assignment-checklist.md](docs/assignment-checklist.md).
+Отчёты: `target/surefire-reports`, `target/site/jacoco/index.html`.
+Проверенные результаты текущей версии: [чек-лист Assignment 5](docs/assignment-5-checklist.md).
+Защита с live coding остаётся обязательной частью Assignment 5.

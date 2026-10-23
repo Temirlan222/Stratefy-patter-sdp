@@ -1,0 +1,66 @@
+digraph TicketConcert {
+  graph [rankdir=TB, bgcolor="white", fontname="Arial", fontsize=21, label="TicketConcert — Assignment 4 / Facade", labelloc=t, pad=0.35, nodesep=0.5, ranksep=0.85, compound=true];
+  node [shape=record, fontname="Arial", fontsize=12, style=filled, fillcolor="white", color="#334155", margin="0.15,0.10"];
+  edge [fontname="Arial", fontsize=10, color="#475569", arrowsize=0.75];
+  Main [label="{app.Main (Client)|+ main(args)\l~ run(input, output, databaseUrl)\l}", fillcolor="#e2e8f0"];
+  subgraph cluster_facades {
+    label="Facedes — orchestration and durable workflow"; color="#64748b"; style="rounded";
+    User [label="{UserFacede|- seatingChart: SeatingChart\l- ticketPrinter: TicketPrinter\l- accessControlGate: AccessControlGate\l- workflowRepository: PurchaseWorkflowRepository\l- adminFacade: AdminFacade\l|+ purchase(...): PurchaseWorkflow\l}", fillcolor="#e0e7ff"];
+    Admin [label="{AdminFacade|- workflows: PurchaseWorkflowRepository\l- reservations: ReservationRepository\l- tickets: TicketProcessingRepository\l- accessRecords: TicketAccessRepository\l|+ inspectPurchase(id): String\l+ compensate(id): PurchaseWorkflow\l}", fillcolor="#e0e7ff"];
+    Workflow [label="{PurchaseWorkflow|- purchaseId, eventId, seatId: int\l- customerId, basePrice: int\l- status: String\l|+ markACompleted(): void\l+ markBCompleted(): void\l+ markCCompleted(): void\l+ beginCompensation(): void\l+ markCompensated(): void\l}"];
+    WorkRepo [label="{PurchaseWorkflowRepository|- databaseUrl: String\l|+ save(purchase): void\l+ findById(id): PurchaseWorkflow\l}"];
+    User -> Admin [label="adminFacade"];
+    User -> WorkRepo [label="workflowRepository"];
+    Admin -> WorkRepo [label="workflows"];
+    User -> Workflow [style=dashed, label="creates / advances"];
+    Admin -> Workflow [style=dashed, label="compensates"];
+    WorkRepo -> Workflow [style=dashed, label="reads / writes"];
+  }
+  subgraph cluster_a {
+    label="A — reservation"; color="#16a34a"; style="rounded";
+    SeatingChart [label="{SeatingChart|- seatCount: int\l- reservationRepository: ReservationRepository\l|+ validateSeat(id): void\l+ validateAvailableSeat(eventId, seatId): void\l+ reserveSeat(...): SeatReservation\l}", fillcolor="#dcfce7"];
+    Pricing [label="{DynamicPricingEngine||+ calculatePrice(basePrice, reservedSeats, totalSeats): int\l}", fillcolor="#dcfce7"];
+    Reservation [label="{SeatReservation|+ reservationId, eventId, seatId, price: int\l- status: String\l|+ reserve(): void\l+ release(): void\l+ getters\l}", fillcolor="#dcfce7"];
+    ResRepo [label="{ReservationRepository|~ adressDatabase: String\l|+ save(reservation): void\l+ findById(id): SeatReservation\l+ isSeatReserved(eventId, seatId): boolean\l+ countReservedSeats(eventId): int\l}", fillcolor="#dcfce7"];
+    SeatingChart -> ResRepo [label="reservationRepository"];
+    SeatingChart -> Pricing [style=dashed, label="creates / uses"];
+    SeatingChart -> Reservation [style=dashed, label="creates"];
+    ResRepo -> Reservation [style=dashed, label="reads / writes"];
+  }
+  subgraph cluster_b {
+    label="B — processing"; color="#2563eb"; style="rounded";
+    Printer [label="{TicketPrinter|- fraudChecker: FraudChecker\l- repository: TicketProcessingRepository\l|+ printTicket(...): TicketProcessing\l+ cancelTicket(id): void\l}", fillcolor="#dbeafe"];
+    Fraud [label="{FraudChecker|- blockedCustomerIds: Set(Integer)\l|+ check(customerId): void\l}", fillcolor="#dbeafe"];
+    Ticket [label="{TicketProcessing|- ticketId, reservationId: int\l- status: String\l|+ print(): void\l+ cancel(): void\l+ getters\l}", fillcolor="#dbeafe"];
+    TicketRepo [label="{TicketProcessingRepository|- databaseUrl: String\l|+ save(ticket): void\l+ findById(id): TicketProcessing\l}", fillcolor="#dbeafe"];
+    Printer -> Fraud [label="fraudChecker"];
+    Printer -> TicketRepo [label="repository"];
+    Printer -> Ticket [style=dashed, label="creates / updates"];
+    TicketRepo -> Ticket [style=dashed, label="reads / writes"];
+  }
+  subgraph cluster_c {
+    label="C — finalization"; color="#9333ea"; style="rounded";
+    Gate [label="{AccessControlGate|- repository: TicketAccessRepository\l- available: boolean\l|+ activateAccess(...): TicketAccess\l+ refundAccess(id): int\l}", fillcolor="#f3e8ff"];
+    Refund [label="{RefundService||+ calculateRefund(access): int\l}", fillcolor="#f3e8ff"];
+    Access [label="{TicketAccess|- accessId, ticketId, amount: int\l- status: String\l|+ activate(): void\l+ refund(): void\l+ getters\l}", fillcolor="#f3e8ff"];
+    AccessRepo [label="{TicketAccessRepository|- databaseUrl: String\l|+ save(access): void\l+ findById(id): TicketAccess\l}", fillcolor="#f3e8ff"];
+    Gate -> AccessRepo [label="repository"];
+    Gate -> Refund [style=dashed, label="uses"];
+    Gate -> Access [style=dashed, label="creates / updates"];
+    Refund -> Access [style=dashed, label="checks / calculates"];
+    AccessRepo -> Access [style=dashed, label="reads / writes"];
+  }
+  Main -> User [style=dashed, label="purchase"];
+  Main -> Admin [style=dashed, label="inspect / compensate"];
+  User -> SeatingChart [label="seatingChart"];
+  User -> Printer [label="ticketPrinter"];
+  User -> Gate [label="accessControlGate"];
+  Admin -> ResRepo [label="reservations"];
+  Admin -> TicketRepo [label="tickets"];
+  Admin -> AccessRepo [label="accessRecords"];
+  Admin -> Refund [style=dashed, label="uses"];
+  Admin -> Reservation [style=dashed, label="releases"];
+  Admin -> Ticket [style=dashed, label="cancels"];
+  Admin -> Access [style=dashed, label="refunds"];
+  Legend [shape=note, fontsize=11, label="Solid arrow: stored association\lDashed arrow: dependency\lConstructors and routine getters omitted for readability.\lMain also constructs dependencies at startup.\lRepositories use SQLite via JDBC; subsystems never call one another.\l", fillcolor="#f8fafc"];
+}

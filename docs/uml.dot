@@ -1,5 +1,5 @@
 digraph TicketConcert {
-  graph [rankdir=TB, bgcolor="white", fontname="Arial", fontsize=21, label="TicketConcert — Assignment 4 / Facade", labelloc=t, pad=0.35, nodesep=0.5, ranksep=0.85, compound=true];
+  graph [rankdir=TB, bgcolor="white", fontname="Arial", fontsize=21, label="TicketConcert — Facade + Strategy", labelloc=t, pad=0.35, nodesep=0.5, ranksep=0.85, compound=true];
   node [shape=record, fontname="Arial", fontsize=12, style=filled, fillcolor="white", color="#334155", margin="0.15,0.10"];
   edge [fontname="Arial", fontsize=10, color="#475569", arrowsize=0.75];
   Main [label="{app.Main (Client)|+ main(args)\l~ run(input, output, databaseUrl)\l}", fillcolor="#e2e8f0"];
@@ -18,22 +18,20 @@ digraph TicketConcert {
   }
   subgraph cluster_a {
     label="A — reservation"; color="#16a34a"; style="rounded";
-    SeatingChart [label="{SeatingChart|- seatCount: int\l- reservationRepository: ReservationRepository\l|+ validateSeat(id): void\l+ validateAvailableSeat(eventId, seatId): void\l+ reserveSeat(...): SeatReservation\l}", fillcolor="#dcfce7"];
-    Pricing [label="{DynamicPricingEngine||+ calculatePrice(basePrice, reservedSeats, totalSeats): int\l}", fillcolor="#dcfce7"];
+    SeatingChart [label="{SeatingChart|- seatCount: int\l- reservationRepository: ReservationRepository\l- pricingContext: PricingContext\l|+ validateSeat(id): void\l+ validateAvailableSeat(eventId, seatId): void\l+ reserveSeat(...): SeatReservation\l}", fillcolor="#dcfce7"];
+    Pricing [label="{DynamicPricingEngine (Assignment 4 legacy)||+ calculatePrice(basePrice, reservedSeats, totalSeats): int\l}", fillcolor="#dcfce7"];
     Reservation [label="{SeatReservation|+ reservationId, eventId, seatId, price: int\l- status: String\l|+ reserve(): void\l+ release(): void\l+ getters\l}", fillcolor="#dcfce7"];
     ResRepo [label="{ReservationRepository|~ adressDatabase: String\l|+ save(reservation): void\l+ findById(id): SeatReservation\l+ isSeatReserved(eventId, seatId): boolean\l+ countReservedSeats(eventId): int\l}", fillcolor="#dcfce7"];
     SeatingChart -> ResRepo [label="reservationRepository"];
-    SeatingChart -> Pricing [style=dashed, label="creates / uses"];
     SeatingChart -> Reservation [style=dashed, label="creates"];
     ResRepo -> Reservation [style=dashed, label="reads / writes"];
   }
   subgraph cluster_b {
     label="B — processing"; color="#2563eb"; style="rounded";
-    Printer [label="{TicketPrinter|- fraudChecker: FraudChecker\l- repository: TicketProcessingRepository\l|+ printTicket(...): TicketProcessing\l+ cancelTicket(id): void\l}", fillcolor="#dbeafe"];
+    Printer [label="{TicketPrinter|- riskChecker: PurchaseRiskChecker\l- selector: RiskCheckSelector\l- riskMode: String\l- highDemand: boolean\l- repository: TicketProcessingRepository\l|+ printTicket(...): TicketProcessing\l+ cancelTicket(id): void\l}", fillcolor="#dbeafe"];
     Fraud [label="{FraudChecker|- blockedCustomerIds: Set(Integer)\l|+ check(customerId): void\l}", fillcolor="#dbeafe"];
     Ticket [label="{TicketProcessing|- ticketId, reservationId: int\l- status: String\l|+ print(): void\l+ cancel(): void\l+ getters\l}", fillcolor="#dbeafe"];
     TicketRepo [label="{TicketProcessingRepository|- databaseUrl: String\l|+ save(ticket): void\l+ findById(id): TicketProcessing\l}", fillcolor="#dbeafe"];
-    Printer -> Fraud [label="fraudChecker"];
     Printer -> TicketRepo [label="repository"];
     Printer -> Ticket [style=dashed, label="creates / updates"];
     TicketRepo -> Ticket [style=dashed, label="reads / writes"];
@@ -63,4 +61,56 @@ digraph TicketConcert {
   Admin -> Ticket [style=dashed, label="cancels"];
   Admin -> Access [style=dashed, label="refunds"];
   Legend [shape=note, fontsize=11, label="Solid arrow: stored association\lDashed arrow: dependency\lConstructors and routine getters omitted for readability.\lMain also constructs dependencies at startup.\lRepositories use SQLite via JDBC; subsystems never call one another.\l", fillcolor="#f8fafc"];
+
+  Demo [label="{app.StrategyDemo|+ pricing(output): void\l+ risk(output): void\l}", fillcolor="#e2e8f0"];
+  subgraph cluster_strategy_pricing {
+    label="Strategy family 1 — ticket pricing"; color="#0891b2"; style="rounded";
+    PInterface [label="{PricingStrategy (interface)|+ calculatePrice(base, reserved, total): int\l}", fillcolor="#cffafe"];
+    PContext [label="{PricingContext|- strategy: PricingStrategy\l|+ PricingContext(strategy)\l+ setStrategy(strategy): void\l+ calculatePrice(...): int\l}", fillcolor="#cffafe"];
+    PSelector [label="{PricingSelector|+ select(mode, partner, reserved, total): PricingStrategy\l+ selectByName(mode): PricingStrategy\l+ selectAutomatically(...): PricingStrategy\l}", fillcolor="#cffafe"];
+    PService [label="{PricingService|+ calculatePrice(mode, base, reserved, total): int\l}", fillcolor="#cffafe"];
+    PStandard [label="{StandardPricing|base price\l}", fillcolor="#ecfeff"];
+    PDemand [label="{DemandPricing|occupancy-based markup\l}", fillcolor="#ecfeff"];
+    PFee [label="{BookingFeePricing|fixed booking fee\l}", fillcolor="#ecfeff"];
+    PStandard -> PInterface [style=dashed, arrowhead=empty];
+    PDemand -> PInterface [style=dashed, arrowhead=empty];
+    PFee -> PInterface [style=dashed, arrowhead=empty];
+    PContext -> PInterface [dir=both, arrowtail=odiamond, arrowhead=none, label="strategy"];
+    PSelector -> PInterface [style=dashed, label="creates"];
+    PService -> PSelector [style=dashed, label="uses"];
+    PService -> PContext [style=dashed, label="creates"];
+  }
+  subgraph cluster_strategy_risk {
+    label="Strategy family 2 — purchase risk"; color="#d97706"; style="rounded";
+    RInterface [label="{RiskCheckStrategy (interface)|+ check(customerId, amount): void\l}", fillcolor="#fef3c7"];
+    RContext [label="{PurchaseRiskChecker|- strategy: RiskCheckStrategy\l|+ PurchaseRiskChecker(strategy)\l+ setStrategy(strategy): void\l+ check(customerId, amount): void\l}", fillcolor="#fef3c7"];
+    RSelector [label="{RiskCheckSelector|+ select(mode, highDemand, amount): RiskCheckStrategy\l+ selectByName(mode): RiskCheckStrategy\l+ selectAutomatically(...): RiskCheckStrategy\l}", fillcolor="#fef3c7"];
+    RStandard [label="{StandardRiskCheck|blocklist\l}", fillcolor="#fffbeb"];
+    RLarge [label="{LargePurchaseRiskCheck|blocklist + amount limit\l}", fillcolor="#fffbeb"];
+    RFrequent [label="{FrequentPurchaseRiskCheck|blocklist + recent history\l}", fillcolor="#fffbeb"];
+    History [label="{PurchaseHistorySource (interface)|+ countRecentPurchases(customerId): int\l}", fillcolor="#fef3c7"];
+    Simulated [label="{SimulatedPurchaseHistorySource|- purchases: Map(Integer, Integer)\l|+ countRecentPurchases(customerId): int\l}", fillcolor="#fffbeb"];
+    RStandard -> RInterface [style=dashed, arrowhead=empty];
+    RLarge -> RInterface [style=dashed, arrowhead=empty];
+    RFrequent -> RInterface [style=dashed, arrowhead=empty];
+    RContext -> RInterface [dir=both, arrowtail=odiamond, arrowhead=none, label="strategy"];
+    RSelector -> RInterface [style=dashed, label="creates"];
+    RFrequent -> History [label="purchaseHistorySource"];
+    RSelector -> History [label="purchaseHistorySource"];
+    Simulated -> History [style=dashed, arrowhead=empty];
+  }
+  Main -> Demo [style=dashed, label="menu 8 / 10"];
+  Main -> PSelector [style=dashed, label="uses"];
+  Main -> RSelector [style=dashed, label="creates"];
+  Main -> Simulated [style=dashed, label="creates"];
+  Main -> PContext [style=dashed, label="sets strategy"];
+  SeatingChart -> PContext [label="pricingContext"];
+  Printer -> RContext [label="riskChecker"];
+  Printer -> RSelector [label="selector (menu constructor)"];
+  RStandard -> Fraud [label="fraudChecker"];
+  RLarge -> Fraud [label="fraudChecker"];
+  RFrequent -> Fraud [label="fraudChecker"];
+  RSelector -> Fraud [label="fraudChecker"];
+  Demo -> PContext [style=dashed, label="runtime switching"];
+  Demo -> RContext [style=dashed, label="runtime switching"];
 }

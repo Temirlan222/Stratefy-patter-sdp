@@ -16,6 +16,15 @@ public class PricingSelector {
 
     }
 
+    public PricingStrategy select(String mode,boolean partnerBooking, int reservedSeats,int totalSeats){
+        if(mode.equals("auto")){
+            return selectAutomatically(partnerBooking,reservedSeats,totalSeats);
+        }
+        else{
+            return selectByName(mode);
+        }
+    }
+
     public PricingStrategy selectAutomatically(boolean partnerBooking, int reservedSeats, int totalSeats){
         if (partnerBooking == true){
             return new BookingFeePricing();
